@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { WalletProvider } from "@/context/WalletContext";
 import { Navbar } from "@/components/Navbar";
+import { CSPostHogProvider } from "@/providers/PostHogProvider";
 
 export const metadata: Metadata = {
   title: "Afristore — African Art on Stellar",
