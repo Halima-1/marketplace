@@ -381,6 +381,25 @@ impl MarketplaceContract {
         if listing.status != ListingStatus::Active {
             panic_with_error!(&env, MarketplaceError::ListingNotActive);
         }
+
+        let offers = load_listing_offers(&env, listing_id);
+        for offer_id in offers.iter() {
+            if let Some(mut offer) = load_offer(&env, offer_id) {
+                if offer.status == OfferStatus::Pending {
+                    #[cfg(not(test))]
+                    {
+                        TokenClient::new(&env, &offer.token).transfer(
+                            &env.current_contract_address(),
+                            &offer.offerer,
+                            &offer.amount,
+                        );
+                    }
+                    offer.status = OfferStatus::Rejected;
+                    save_offer(&env, &offer);
+                }
+            }
+        }
+
         listing.status = ListingStatus::Cancelled;
         save_listing(&env, &listing);
         true
@@ -404,7 +423,7 @@ impl MarketplaceContract {
         if Self::is_artist_revoked(env.clone(), creator.clone()) {
             panic_with_error!(&env, MarketplaceError::Unauthorized);
         }
-        if metadata_cid.is_empty() || reserve_price < 0 {
+        if metadata_cid.is_empty() || reserve_price <= 0 {
             panic_with_error!(&env, MarketplaceError::InvalidCid);
         }
         if !Self::is_token_whitelisted(&env, &token) {
@@ -461,7 +480,9 @@ impl MarketplaceContract {
         save_auction(&env, &auction);
     }
 
-    pub fn finalize_auction(env: Env, auction_id: u64) {
+    pub fn finalize_auction(env: Env, caller: Address, auction_id: u64) {
+        caller.require_auth();
+
         // Reentrancy guard
         if !acquire_auction_lock(&env, auction_id) {
             panic_with_error!(&env, MarketplaceError::ReentrancyGuard);
@@ -483,7 +504,10 @@ impl MarketplaceContract {
 
         // Time check
         if env.ledger().timestamp() < auction.end_time {
-            auction.creator.require_auth();
+            if caller != auction.creator {
+                release_auction_lock(&env, auction_id);
+                panic_with_error!(&env, MarketplaceError::Unauthorized);
+            }
         }
 
         if let Some(_winner) = auction.highest_bidder.clone() {

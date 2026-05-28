@@ -27,6 +27,7 @@ pub enum DataKey {
 
 const LEDGER_TTL_BUMP: u32 = 432_000;
 const LEDGER_TTL_THRESHOLD: u32 = 144_000;
+const REENTRANCY_LOCK_TTL: u32 = 100;
 
 // ── Counter helpers ──────────────────────────────────────────
 
@@ -267,30 +268,36 @@ pub fn get_protocol_fee_bps_storage(env: &Env) -> Option<u32> {
 
 pub fn acquire_listing_lock(env: &Env, listing_id: u64) -> bool {
     let key = DataKey::ListingLock(listing_id);
-    if env.storage().persistent().has(&key) {
+    if env.storage().temporary().has(&key) {
         return false;
     }
-    env.storage().persistent().set(&key, &true);
+    env.storage().temporary().set(&key, &true);
+    env.storage()
+        .temporary()
+        .extend_ttl(&key, REENTRANCY_LOCK_TTL, REENTRANCY_LOCK_TTL);
     true
 }
 
 pub fn release_listing_lock(env: &Env, listing_id: u64) {
     let key = DataKey::ListingLock(listing_id);
-    env.storage().persistent().remove(&key);
+    env.storage().temporary().remove(&key);
 }
 
 pub fn acquire_auction_lock(env: &Env, auction_id: u64) -> bool {
     let key = DataKey::AuctionLock(auction_id);
-    if env.storage().persistent().has(&key) {
+    if env.storage().temporary().has(&key) {
         return false;
     }
-    env.storage().persistent().set(&key, &true);
+    env.storage().temporary().set(&key, &true);
+    env.storage()
+        .temporary()
+        .extend_ttl(&key, REENTRANCY_LOCK_TTL, REENTRANCY_LOCK_TTL);
     true
 }
 
 pub fn release_auction_lock(env: &Env, auction_id: u64) {
     let key = DataKey::AuctionLock(auction_id);
-    env.storage().persistent().remove(&key);
+    env.storage().temporary().remove(&key);
 }
 
 // ── Pause/Unpause Mechanism ──────────────────────────────────
