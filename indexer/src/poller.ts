@@ -182,8 +182,7 @@ export async function startPolling() {
           console.error(`Failed to fetch hash for ledger ${maxLedger}:`, err);
         }
 
-        // Write events + state updates atomically. We first detect which events are new,
-        // insert them with createMany(skipDuplicates), then apply state updates only for new events.
+    
         const { updatedState, newEvents } = await prisma.$transaction(async (tx) => {
           const conditions = decodedEvents.map((e) => ({
             listingId: e.listingId ?? null,
