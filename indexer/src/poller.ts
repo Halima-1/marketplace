@@ -65,6 +65,32 @@ export async function revertLedgers(safeAtLedger: number): Promise<void> {
   console.log(`[Reorg] Rollback complete. Resuming from ledger ${safeAtLedger + 1}`);
 }
 
+export async function validateHashContinuity(
+  syncState: { lastLedger: number; lastLedgerHash: string | null },
+  rpcServer: rpc.Server
+): Promise<boolean> {
+  if (syncState.lastLedger > 0 && syncState.lastLedgerHash) {
+    try {
+      const ledgersRes = await rpcServer.getLedgers({
+        startLedger: syncState.lastLedger,
+        pagination: { limit: 1 }
+      });
+      if (ledgersRes.ledgers && ledgersRes.ledgers.length > 0) {
+        const networkLedger = ledgersRes.ledgers[0];
+        if (networkLedger.hash !== syncState.lastLedgerHash) {
+          console.warn(`Chain re-org detected at ledger ${syncState.lastLedger}! DB hash: ${syncState.lastLedgerHash}, Network hash: ${networkLedger.hash}`);
+          const toLedger = Math.max(0, syncState.lastLedger - 1);
+          await revertLedgers(toLedger);
+          return false;
+        }
+      }
+    } catch (err) {
+      console.error(`Error validating ledger hash continuity at ledger ${syncState.lastLedger}:`, err);
+    }
+  }
+  return true;
+}
+
 export async function startPolling() {
   console.log(`Starting indexer poller for contract: ${CONTRACT_ID}`);
 
@@ -79,24 +105,9 @@ export async function startPolling() {
       }
 
       // 2. Validate hash continuity on every poll
-      if (syncState.lastLedger > 0 && syncState.lastLedgerHash) {
-        try {
-          const ledgersRes = await server.getLedgers({
-            startLedger: syncState.lastLedger,
-            pagination: { limit: 1 }
-          });
-          if (ledgersRes.ledgers && ledgersRes.ledgers.length > 0) {
-            const networkLedger = ledgersRes.ledgers[0];
-            if (networkLedger.hash !== syncState.lastLedgerHash) {
-              console.warn(`Chain re-org detected at ledger ${syncState.lastLedger}! DB hash: ${syncState.lastLedgerHash}, Network hash: ${networkLedger.hash}`);
-              const toLedger = Math.max(0, syncState.lastLedger - 1);
-              await revertLedgers(toLedger);
-              continue; // Restart the loop immediately with the reverted state
-            }
-          }
-        } catch (err) {
-          console.error(`Error validating ledger hash continuity at ledger ${syncState.lastLedger}:`, err);
-        }
+      const isContinuous = await validateHashContinuity(syncState, server);
+      if (!isContinuous) {
+        continue; // Restart the loop immediately with the reverted state
       }
 
       // 3. Resolve start ledger, clamping to the safe RPC window on every poll
