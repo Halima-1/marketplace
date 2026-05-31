@@ -27,7 +27,7 @@ async function getCached<T>(key: string, ttl: number, fetcher: () => Promise<T>)
     }
     const result = await fetcher();
     try {
-        await redis.set(key, JSON.stringify(result), 'EX', ttl);
+        await redis.set(key, JSON.stringify(result), { expiration: { type: 'EX', value: ttl } });
     } catch {
         // ignore cache write failures
     }
@@ -70,7 +70,10 @@ router.get('/listings', async (req: Request, res: Response) => {
         }
 
         const take = Math.max(0, Math.min(Number(limit || 0), 1000)) || undefined;
-        const skip = Number(offset || 0) || undefined;
+        const rawOffset = Number(offset || 0);
+        const skip = Number.isFinite(rawOffset) && rawOffset > 0
+            ? Math.min(rawOffset, 10_000)
+            : undefined;
 
         const results = await prisma.listing.findMany({
             where,

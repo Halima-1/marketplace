@@ -22,6 +22,7 @@ const mockPrisma = vi.hoisted(() => ({
 
 const mockRedis = vi.hoisted(() => ({
   isOpen: false,
+  isReady: false,
   get: vi.fn(),
   setEx: vi.fn().mockResolvedValue(undefined),
   on: vi.fn(),
@@ -127,6 +128,16 @@ describe('GET /listings', () => {
     const res = await request(app).get('/listings');
     expect(res.status).toBe(500);
     expect(res.body.error).toBeDefined();
+  });
+
+  it('caps offset at 10000', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([]);
+
+    await request(app).get('/listings?offset=50000');
+
+    expect(mockPrisma.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 10000 })
+    );
   });
 });
 
