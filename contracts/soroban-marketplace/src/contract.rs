@@ -238,10 +238,19 @@ impl MarketplaceContract {
             panic_with_error!(&env, MarketplaceError::InvalidPrice);
         }
 
-        let recipients_len = recipients.len();
-        if recipients_len == 0 || recipients_len > 4 {
-            panic_with_error!(&env, MarketplaceError::TooManyRecipients);
+                // Validate royalty bps — must not exceed 10000 (100%). Reject explicitly.
+                if royalty_bps > 10_000 {
+                    panic_with_error!(&env, MarketplaceError::InvalidRoyalty);
         }
+
+                let recipients_len = recipients.len();
+                // Empty recipient arrays are an invalid split configuration; reject with InvalidSplit.
+                if recipients_len == 0 {
+                    panic_with_error!(&env, MarketplaceError::InvalidSplit);
+                }
+                if recipients_len > 4 {
+                    panic_with_error!(&env, MarketplaceError::TooManyRecipients);
+                }
 
         let mut total_percentage = 0;
         for i in 0..recipients_len {
@@ -325,10 +334,13 @@ impl MarketplaceContract {
         }
 
         let new_recipients_len = new_recipients.len();
-        if new_recipients_len == 0 || new_recipients_len > 4 {
-            panic_with_error!(&env, MarketplaceError::TooManyRecipients);
+                if new_recipients_len == 0 {
+                    panic_with_error!(&env, MarketplaceError::InvalidSplit);
         }
-        let mut total_pct = 0u32;
+                if new_recipients_len > 4 {
+                    panic_with_error!(&env, MarketplaceError::TooManyRecipients);
+                }
+                let mut total_pct = 0u32;
         for i in 0..new_recipients_len {
             total_pct += new_recipients.get(i).unwrap().percentage;
         }
@@ -392,17 +404,23 @@ impl MarketplaceContract {
             panic_with_error!(&env, MarketplaceError::CannotBuyOwnListing);
         }
 
-        Self::distribute_payout(
-            &env,
-            &listing.token,
-            listing.price,
-            &listing.original_creator,
-            listing.royalty_bps,
-            &listing.artist,
-            &listing.recipients,
-            &buyer,
-            true,
-        );
+        // Ensure token is still whitelisted at purchase time. If it was removed after listing creation, block the purchase.
+                if !Self::is_token_whitelisted(&env, &listing.token) {
+                    release_listing_lock(&env, listing_id);
+                    panic_with_error!(&env, MarketplaceError::TokenNotWhitelisted);
+                }
+
+                Self::distribute_payout(
+                    &env,
+                    &listing.token,
+                    listing.price,
+                    &listing.original_creator,
+                    listing.royalty_bps,
+                    &listing.artist,
+                    &listing.recipients,
+                    &buyer,
+                    true,
+                );
 
         listing.status = ListingStatus::Sold;
         listing.owner = Some(buyer.clone());
@@ -504,7 +522,11 @@ impl MarketplaceContract {
         if !Self::is_token_whitelisted(&env, &token) {
             panic_with_error!(&env, MarketplaceError::Unauthorized);
         }
-        let auction_id = increment_auction_count(&env);
+                // Validate royalty bps — must not exceed 10000 (100%). Reject explicitly.
+                if royalty_bps > 10_000 {
+                    panic_with_error!(&env, MarketplaceError::InvalidRoyalty);
+                }
+                let auction_id = increment_auction_count(&env);
         let end_time = env.ledger().timestamp() + duration;
         let auction = Auction {
             auction_id,

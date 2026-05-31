@@ -8,6 +8,7 @@ import {
   networkLatestLedgerGauge,
   syncLatencyGauge
 } from './metrics.js';
+import redis from './redis.js';
 
 dotenv.config();
 
@@ -24,6 +25,49 @@ const BASE_BACKOFF_MS = 2_000;
 const MAX_BACKOFF_MS = 60_000;
 
 let consecutiveErrors = 0;
+
+// Graceful shutdown coordination
+let shuttingDown = false;
+
+function setupSignalHandlers() {
+  const onSignal = (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] Received ${sig} — attempting graceful shutdown`);
+    // Start async cleanup; don't await here since signals may be re-delivered
+    gracefulShutdown().catch((err) => {
+      console.error('[Shutdown] Graceful shutdown failed:', err);
+      process.exit(1);
+    });
+  };
+  process.on('SIGTERM', () => onSignal('SIGTERM'));
+  process.on('SIGINT', () => onSignal('SIGINT'));
+}
+
+async function gracefulShutdown() {
+  console.log('[Shutdown] Closing resources: Prisma + Redis');
+  const cleanup = Promise.allSettled([
+    prisma.$disconnect(),
+    // redis may not be connected in some test environments
+    (redis && typeof redis.disconnect === 'function') ? redis.disconnect() : Promise.resolve(),
+  ]);
+
+  // Timeout fallback: force exit if cleanup hangs
+  try {
+    await Promise.race([
+      cleanup,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('shutdown timeout')), 10000)),
+    ]);
+    console.log('[Shutdown] Cleanup complete, exiting');
+    process.exit(0);
+  } catch (err) {
+    console.error('[Shutdown] Cleanup timed out or errored:', err);
+    process.exit(1);
+  }
+}
+
+// Register handlers immediately so any external SIGTERM/SIGINT will be caught
+setupSignalHandlers();
 
 const server = new rpc.Server(RPC_URL);
 
@@ -98,7 +142,7 @@ export async function startPolling() {
 
   console.log(`Starting indexer poller for contract: ${CONTRACT_ID}`);
 
-  while (true) {
+  while (!shuttingDown) {
     try {
       // 1. Get last indexed ledger — upsert avoids a unique-constraint violation
       //    when two instances start simultaneously (race between findUnique + create).
@@ -300,6 +344,11 @@ export async function startPolling() {
     consecutiveErrors = 0;
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
   }
+
+    // If the loop exited due to shutdown signal, ensure resources are cleaned
+    if (shuttingDown) {
+      await gracefulShutdown();
+    }
 }
 
 async function fetchListingFromChain(_listingId: bigint): Promise<any | null> {

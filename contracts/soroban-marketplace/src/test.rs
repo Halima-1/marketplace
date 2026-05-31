@@ -2216,3 +2216,99 @@ fn test_get_token_whitelist_after_removal() {
     let list_after = client.get_token_whitelist();
     assert!(!list_after.iter().any(|t| t == token_id));
 }
+
+// ── Royalty bps validation tests (security)
+
+#[test]
+fn test_create_listing_royalty_bps_max_allowed() {
+    let (env, client, artist, _, token_id, _contract_id) = setup();
+    client.set_admin(&artist);
+    client.add_token_to_whitelist(&token_id);
+    let cid = bytes!(&env, 0x516d74657374);
+    // 10000 bps (100%) is allowed at creation time
+    let id = client.create_listing(
+        &artist,
+        &cid,
+        &1_000_000_i128,
+        &symbol_short!("XLM"),
+        &token_id,
+        &10000u32,
+        &valid_recipients(&env, &artist),
+    );
+    assert_eq!(id, 1u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_create_listing_royalty_bps_too_high() {
+    let (env, client, artist, _, token_id, _contract_id) = setup();
+    client.set_admin(&artist);
+    client.add_token_to_whitelist(&token_id);
+    let cid = bytes!(&env, 0x516d74657374);
+    client.create_listing(
+        &artist,
+        &cid,
+        &1_000_000_i128,
+        &symbol_short!("XLM"),
+        &token_id,
+        &10001u32,
+        &valid_recipients(&env, &artist),
+    );
+}
+
+#[test]
+fn test_create_auction_royalty_bps_max_allowed() {
+    let (env, client, artist, _, token_id, _contract_id) = setup();
+    client.set_admin(&artist);
+    client.add_token_to_whitelist(&token_id);
+    let cid = bytes!(&env, 0x516d74657374);
+    let auction_id = client.create_auction(
+        &artist,
+        &cid,
+        &token_id,
+        &1_000_000_i128,
+        &3600u64,
+        &10000u32,
+        &valid_recipients(&env, &artist),
+    );
+    assert_eq!(auction_id, 1u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #24)")]
+fn test_create_auction_royalty_bps_too_high() {
+    let (env, client, artist, _, token_id, _contract_id) = setup();
+    client.set_admin(&artist);
+    client.add_token_to_whitelist(&token_id);
+    let cid = bytes!(&env, 0x516d74657374);
+    client.create_auction(
+        &artist,
+        &cid,
+        &token_id,
+        &1_000_000_i128,
+        &3600u64,
+        &10001u32,
+        &valid_recipients(&env, &artist),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #25)")]
+fn test_buy_artwork_fails_if_token_delisted() {
+    let (env, client, artist, buyer, token_id, _contract_id) = setup();
+    client.set_admin(&artist);
+    client.add_token_to_whitelist(&token_id);
+    let cid = bytes!(&env, 0x516d74657374);
+    let id = client.create_listing(
+        &artist,
+        &cid,
+        &1_000_000_i128,
+        &symbol_short!("XLM"),
+        &token_id,
+        &0u32,
+        &valid_recipients(&env, &artist),
+    );
+    // Admin removes token from whitelist — purchase should now be rejected at buy time
+    client.remove_token_from_whitelist(&token_id);
+    client.buy_artwork(&buyer, &id);
+}
