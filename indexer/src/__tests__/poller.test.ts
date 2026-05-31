@@ -440,6 +440,9 @@ describe('validateHashContinuity', () => {
     expect(result).toBe(false);
     // revertLedgers wraps everything in a prisma transaction
     expect(mockPrisma.$transaction).toHaveBeenCalledOnce();
+  });
+});
+
 // ── startPolling validation ───────────────────────────────────────────────────
 
 describe('startPolling', () => {

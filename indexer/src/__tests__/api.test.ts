@@ -7,10 +7,13 @@ import request from 'supertest';
 const mockPrisma = vi.hoisted(() => ({
   listing: {
     findMany: vi.fn(),
+    count: vi.fn(),
+    aggregate: vi.fn(),
   },
   marketplaceEvent: {
     findMany: vi.fn(),
     findFirst: vi.fn(),
+    count: vi.fn(),
   },
   collection: {
     findMany: vi.fn(),
@@ -327,5 +330,81 @@ describe('GET /wallets/:address/royalty-stats', () => {
         },
       })
     );
+  });
+});
+
+// ── GET /stats ───────────────────────────────────────────────────────────────
+
+describe('GET /stats', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns overall stats successfully', async () => {
+    mockPrisma.listing.count.mockImplementation(async (args?: any) => {
+      if (args?.where?.status === 'Active') return 10;
+      return 15; // total listings
+    });
+    mockPrisma.listing.aggregate.mockResolvedValue({
+      _sum: { price: '5000.0000000' },
+    });
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([
+      { actor: 'ACTOR1' },
+      { actor: 'ACTOR2' },
+    ]);
+    mockPrisma.marketplaceEvent.count.mockResolvedValue(5);
+
+    const res = await request(app).get('/stats');
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalListings).toBe(15);
+    expect(res.body.activeListings).toBe(10);
+    expect(res.body.totalVolume).toBe('5000.0000000');
+    expect(res.body.activeUsers).toBe(2); // unique actors
+    expect(res.body.totalEvents).toBe(5);
+  });
+
+  it('returns stats with range query param', async () => {
+    mockPrisma.listing.count.mockResolvedValue(15);
+    mockPrisma.listing.aggregate.mockResolvedValue({ _sum: { price: '5000' } });
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([{ actor: 'A1' }]);
+    mockPrisma.marketplaceEvent.count.mockResolvedValue(3);
+
+    const res = await request(app).get('/stats?range=week');
+
+    expect(res.status).toBe(200);
+    expect(res.body.timeRange).toBeDefined();
+    expect(res.body.timeRange.from).toBeDefined();
+    expect(res.body.timeRange.to).toBeDefined();
+    expect(mockPrisma.marketplaceEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          ledgerTimestamp: expect.any(Object),
+        }),
+      })
+    );
+  });
+
+  it('returns 400 for invalid range', async () => {
+    const res = await request(app).get('/stats?range=invalid');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid range value. Use day, week, or month.');
+  });
+
+  it('returns stats with from/to query params', async () => {
+    mockPrisma.listing.count.mockResolvedValue(15);
+    mockPrisma.listing.aggregate.mockResolvedValue({ _sum: { price: '5000' } });
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([{ actor: 'A1' }]);
+    mockPrisma.marketplaceEvent.count.mockResolvedValue(3);
+
+    const res = await request(app).get('/stats?from=2024-01-01&to=2024-01-07');
+
+    expect(res.status).toBe(200);
+    expect(res.body.timeRange.from).toContain('2024-01-01');
+    expect(res.body.timeRange.to).toContain('2024-01-07');
+  });
+
+  it('returns 400 for invalid date format', async () => {
+    const res = await request(app).get('/stats?from=bad-date');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Invalid from date format. Use ISO 8601.');
   });
 });
