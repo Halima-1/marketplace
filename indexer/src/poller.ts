@@ -325,7 +325,7 @@ export async function processEvent(event: any, tx?: any, skipInsert = false) {
     });
   }
 
-  // 2. Handle deploy events (no listingId — collection deployments)
+  // Handle deploy events (no listingId — collection deployments)
   if (eventType === 'DEPLOY_NORMAL_721' || eventType === 'DEPLOY_NORMAL_1155' ||
       eventType === 'DEPLOY_LAZY_721' || eventType === 'DEPLOY_LAZY_1155') {
     const kindMap: Record<string, string> = {
@@ -355,7 +355,7 @@ export async function processEvent(event: any, tx?: any, skipInsert = false) {
     return;
   }
 
-  // 3. Update Listing state based on event type
+  // Update Listing state based on event type
   if (!listingId) return;
 
   switch (eventType) {
@@ -562,14 +562,19 @@ export async function processEvent(event: any, tx?: any, skipInsert = false) {
           updatedAtLedger: ledgerSequence,
         }
       });
-      await db.listing.update({
-        where: { listingId: BigInt(data.listing_id) },
-        data: {
-          status: 'Sold',
-          owner: data.offerer,
-          updatedAtLedger: ledgerSequence,
-        }
-      }).catch(() => {});
+      try {
+        await db.listing.update({
+          where: { listingId: BigInt(data.listing_id) },
+          data: {
+            status: 'Sold',
+            owner: data.offerer,
+            updatedAtLedger: ledgerSequence,
+          }
+        });
+      } catch (error) {
+        console.error(`Failed to update listing ${data.listing_id} after offer ${data.offer_id} accepted:`, error);
+        throw error;
+      }
       break;
     }
 
@@ -594,7 +599,6 @@ export async function processEvent(event: any, tx?: any, skipInsert = false) {
       });
       break;
     }
-
   }
 
   // Broadcast to any connected SSE clients after the DB write is complete.

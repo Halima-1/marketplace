@@ -125,7 +125,6 @@ export default function AuctionDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"details" | "bids">("details");
-
   const [bidAmountXlm, setBidAmountXlm] = useState("");
   const [bidSuccess, setBidSuccess] = useState(false);
   const [finalizeSuccess, setFinalizeSuccess] = useState(false);
