@@ -73,6 +73,7 @@ vi.mock('@stellar/stellar-sdk', () => ({
   },
 }));
 
+import { processEvent, revertLedgers, validateHashContinuity } from '../poller';
 import { processEvent, revertLedgers, startPolling } from '../poller';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -403,6 +404,42 @@ describe('revertLedgers', () => {
   });
 });
 
+// ── validateHashContinuity ────────────────────────────────────────────────────
+
+describe('validateHashContinuity', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns true if network hash matches lastLedgerHash', async () => {
+    const mockServer = {
+      getLedgers: vi.fn().mockResolvedValue({
+        ledgers: [{ hash: 'matching_hash' }]
+      })
+    } as any;
+    
+    const result = await validateHashContinuity(
+      { lastLedger: 100, lastLedgerHash: 'matching_hash' },
+      mockServer
+    );
+    
+    expect(result).toBe(true);
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns false and triggers revertLedgers if hashes mismatch', async () => {
+    const mockServer = {
+      getLedgers: vi.fn().mockResolvedValue({
+        ledgers: [{ hash: 'different_network_hash' }]
+      })
+    } as any;
+    
+    const result = await validateHashContinuity(
+      { lastLedger: 100, lastLedgerHash: 'db_hash' },
+      mockServer
+    );
+    
+    expect(result).toBe(false);
+    // revertLedgers wraps everything in a prisma transaction
+    expect(mockPrisma.$transaction).toHaveBeenCalledOnce();
 // ── startPolling validation ───────────────────────────────────────────────────
 
 describe('startPolling', () => {
