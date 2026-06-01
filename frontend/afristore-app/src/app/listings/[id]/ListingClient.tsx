@@ -18,7 +18,8 @@ import {
 } from "@/lib/contract";
 import { fetchMetadata, cidToGatewayUrl, ArtworkMetadata } from "@/lib/ipfs";
 import { useWalletContext } from "@/context/WalletContext";
-import { useBuyArtwork, usePlaceBid } from "@/hooks/useMarketplace";
+import { useBuyArtwork } from "@/hooks/useMarketplace";
+import { usePlaceBid } from "@/hooks/usePlaceBid";
 import { useListingOffers, useMakeOffer } from "@/hooks/useOffers";
 import { useListingActivity } from "@/hooks/useUserActivity";
 import { GuardButton } from "@/components/WalletGuard";
@@ -42,7 +43,7 @@ import {
 } from "lucide-react";
 
 interface ListingClientProps {
-  id: string;
+    id: string;
 }
 
 export default function ListingDetailPage({ id }: ListingClientProps) {
@@ -62,7 +63,7 @@ export default function ListingDetailPage({ id }: ListingClientProps) {
     const { bid, isBidding, error: bidError } = usePlaceBid(publicKey);
     const { offers, isLoading: isLoadingOffers, refresh: refreshOffers } = useListingOffers(id ? Number(id) : null);
     const { activities, isLoading: isLoadingActivity } = useListingActivity(id ? Number(id) : null);
-    
+
     // Make Offer Hook and States
     const { make: makeOffer, isOffering, error: offerError } = useMakeOffer(publicKey);
     const [offerAmount, setOfferAmount] = useState("");
