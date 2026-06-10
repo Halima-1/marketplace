@@ -41,7 +41,7 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.2",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.8"
   },
   "overrides": {
     "path-to-regexp": "^8.4.0"
