@@ -317,7 +317,9 @@ export function Navbar() {
               {isConnected ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-mono text-brand-300">{shortKey}</p>
+                    <p className="text-sm font-mono text-brand-300">
+                      {shortKey}
+                    </p>
                     {isWrongNetwork && (
                       <span className="flex items-center gap-1 text-[10px] font-bold text-terracotta-400 uppercase">
                         <AlertTriangle size={12} /> Network Error
@@ -353,7 +355,10 @@ export function Navbar() {
         </div>
       </nav>
 
-      <ConnectWalletModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <ConnectWalletModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </>
   );
 }

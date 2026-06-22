@@ -27,7 +27,7 @@ async function getCached<T>(key: string, ttl: number, fetcher: () => Promise<T>)
     }
     const result = await fetcher();
     try {
-        await redis.set(key, JSON.stringify(result), 'EX', ttl);
+        await redis.set(key, JSON.stringify(result), { expiration: { type: 'EX', value: ttl } });
     } catch {
         // ignore cache write failures
     }
@@ -39,6 +39,32 @@ const serialize = (obj: any) =>
     JSON.parse(JSON.stringify(obj, (key, value) =>
         typeof value === 'bigint' ? value.toString() : value
     ));
+
+const mapListing = (l: any) => {
+    if (!l) return l;
+    return {
+        ...l,
+        listing_id: l.listingId,
+        metadata_cid: l.metadataCid,
+        token_id: l.nftTokenId,
+        created_at: l.createdAtLedger,
+    };
+};
+
+const mapAuction = (a: any) => {
+    if (!a) return a;
+    return {
+        ...a,
+        auction_id: a.auctionId,
+        metadata_cid: a.metadataCid,
+        token_id: a.nftTokenId,
+        created_at: a.createdAtLedger,
+        reserve_price: a.reservePrice,
+        highest_bid: a.highestBid,
+        highest_bidder: a.highestBidder,
+        end_time: a.endTime,
+    };
+};
 
 // Normalise IPFS gateway — always ensure it ends with /
 function normaliseGateway(gateway: string): string {
@@ -60,17 +86,20 @@ router.get('/listings', async (req: Request, res: Response) => {
             if (maxPrice) where.price.lte = maxPrice as string;
         }
 
-        // Search against artist address or metadataCid
+        // Search against artist address or collection
         if (search) {
             const q = search as string;
             where.OR = [
                 { artist: { contains: q, mode: 'insensitive' } },
-                { metadataCid: { contains: q, mode: 'insensitive' } },
+                { collection: { contains: q, mode: 'insensitive' } },
             ];
         }
 
         const take = Math.max(0, Math.min(Number(limit || 0), 1000)) || undefined;
-        const skip = Number(offset || 0) || undefined;
+        const rawOffset = Number(offset || 0);
+        const skip = Number.isFinite(rawOffset) && rawOffset > 0
+            ? Math.min(rawOffset, 10_000)
+            : undefined;
 
         const results = await prisma.listing.findMany({
             where,
@@ -79,13 +108,12 @@ router.get('/listings', async (req: Request, res: Response) => {
             skip,
         });
 
-        // If pagination requested, also return total count
         if (take !== undefined || skip !== undefined) {
             const total = await prisma.listing.count({ where });
-            return res.json({ listings: serialize(results), total });
+            return res.json({ listings: serialize(results.map(mapListing)), total });
         }
 
-        res.json(serialize(results));
+        res.json(serialize(results.map(mapListing)));
     } catch (err) {
         console.error('Error details:', err);
         res.status(500).json({ error: 'Failed to fetch listings' });
@@ -101,26 +129,11 @@ router.get('/listings/:id', async (req: Request, res: Response) => {
         });
         if (!listing) return res.status(404).json({ error: 'Listing not found' });
 
-        const out: any = serialize(listing);
-        // Try to fetch metadata from IPFS gateway if available
-        const gateway = normaliseGateway(process.env.IPFS_GATEWAY || 'https://ipfs.io/ipfs/');
-        try {
-            const cid = listing.metadataCid || null;
-            if (cid) {
-                const url = cid.startsWith('ipfs://') ? `${gateway}${cid.replace(/^ipfs:\/\//, '')}` : `${gateway}${cid}`;
-                const r = await axios.get(url, { timeout: 5000 });
-                out.metadata = r.data;
-            } else {
-                out.metadata = null;
-            }
-        } catch (e) {
-            out.metadata = null;
-        }
-
-        res.json(out);
+        const out: any = serialize(mapListing(listing));
+        return res.json(out);
     } catch (err) {
         console.error('Error details:', err);
-        res.status(500).json({ error: 'Failed to fetch listing' });
+        res.status(500).json({ error: 'Failed to fetch listing details' });
     }
 });
 
@@ -290,35 +303,38 @@ router.get('/wallets/:address/royalty-stats', strictRateLimiter, async (req: Req
     try {
         const sold = await prisma.listing.findMany({
             where: {
-                originalCreator: address as string,
                 status: 'Sold',
                 NOT: { artist: address as string },
             },
             select: {
                 listingId: true,
                 price: true,
-                royaltyBps: true,
+                recipients: true,
                 updatedAtLedger: true,
             },
         });
 
         let totalEarned = 0;
-        for (const row of sold) {
-            const p = Number(row.price);
-            totalEarned += (p * row.royaltyBps) / 10000;
-        }
+        let payoutCount = 0;
+        let lastPayout = 0;
 
-        const lastSale = sold.reduce<(typeof sold)[0] | null>((latest, row) => {
-            if (!latest || row.updatedAtLedger > latest.updatedAtLedger) {
-                return row;
+        for (const row of sold) {
+            const recipients = (row.recipients as Array<{ address: string, percentage: number }>) || [];
+            const recipient = recipients.find(r => r.address === address);
+            if (recipient) {
+                payoutCount++;
+                const p = Number(row.price);
+                totalEarned += (p * recipient.percentage) / 10000;
+                if (row.updatedAtLedger > lastPayout) {
+                    lastPayout = row.updatedAtLedger;
+                }
             }
-            return latest;
-        }, null);
+        }
 
         res.json({
             totalEarned: totalEarned.toFixed(7),
-            payoutCount: sold.length,
-            lastPayout: lastSale ? lastSale.updatedAtLedger * 1000 : 0,
+            payoutCount,
+            lastPayout: lastPayout > 0 ? lastPayout * 1000 : 0,
         });
     } catch (err) {
         console.error('Error details:', err);

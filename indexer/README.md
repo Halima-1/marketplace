@@ -8,6 +8,7 @@ A lightweight off-chain indexer for the Afristore Marketplace Soroban contract. 
 - **Structured Data**: Reconstructs marketplace state (listings, owners, prices).
 - **REST API**: Specialized endpoints for artist listings, ownership, and history.
 - **Redis Caching**: TTL-based caching for high-traffic endpoints to handle traffic spikes.
+- **Backfill CLI**: Replays missed ledgers from an archival RPC when the live RPC window is too old.
 - **Docker Ready**: Easy setup with PostgreSQL and Docker Compose.
 
 ## REST API Endpoints
@@ -18,7 +19,7 @@ A lightweight off-chain indexer for the Afristore Marketplace Soroban contract. 
 - `GET /activity/recent` - Get the latest marketplace activity (sales, new listings). **[Cached: 30s]**
 - `GET /collections` - Get all deployed collections. **[Cached: 60s]**
 - `GET /wallets/<address>/activity?limit=50` - Event feed for a Stellar address (actor + JSON `buyer` / `artist` / … matches).
-- `GET /wallets/<address>/royalty-stats` - Total royalty estimate from **Sold** resales where the wallet is the **original creator** and the seller was someone else (matches on-chain `original_creator != seller` payouts).
+- `GET /wallets/<address>/royalty-stats` - Total royalty estimate from **Sold** rows for that artist, plus a simple payout count/last-activity signal.
 
 **Note**: Endpoints marked with **[Cached]** use Redis caching with the specified TTL to handle traffic spikes efficiently.
 
@@ -30,6 +31,7 @@ A lightweight off-chain indexer for the Afristore Marketplace Soroban contract. 
 
 - Docker & Docker Compose
 - **Node.js 20.x** (used in CI, recommended for the TypeScript + Vitest toolchain; Node 18+ is the minimum for current dependencies)
+- A reachable Redis instance for cache-enabled endpoints. The API will fall back to direct database reads if Redis is unavailable, but `/activity/recent` and `/collections` lose their cache layer until Redis reconnects.
 
 ### Quick Start with Docker
 
@@ -55,6 +57,10 @@ A lightweight off-chain indexer for the Afristore Marketplace Soroban contract. 
    ```bash
    npm run dev
    ```
+6. Backfill a missed range from an archival RPC:
+   ```bash
+   npm run backfill -- --start=123456 --end=123999 --rpc=https://your-archival-rpc
+   ```
 
 ## Environment Variables
 
@@ -64,6 +70,7 @@ A lightweight off-chain indexer for the Afristore Marketplace Soroban contract. 
 | `DATABASE_URL`            | PostgreSQL connection string  | -                                     |
 | `REDIS_URL`               | Redis connection string       | `redis://localhost:6379`              |
 | `STELLAR_RPC_URL`         | Stellar RPC endpoint          | `https://soroban-testnet.stellar.org` |
+| `ARCHIVAL_STELLAR_RPC_URL` | Optional archival RPC endpoint | -                                     |
 | `MARKETPLACE_CONTRACT_ID` | The Soroban contract to index | -                                     |
 | `POLL_INTERVAL_MS`        | Polling frequency in ms       | `5000`                                |
 
@@ -76,3 +83,8 @@ The indexer uses Redis for caching high-traffic endpoints. See [REDIS_INTEGRATIO
 - Performance benefits
 - Monitoring and troubleshooting
 - Production considerations
+
+
+
+
+

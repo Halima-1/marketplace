@@ -40,7 +40,7 @@ export interface IpfsUploadResult {
  */
 export async function uploadImageToIPFS(
   file: File,
-  name?: string
+  name?: string,
 ): Promise<IpfsUploadResult> {
   const formData = new FormData();
   formData.append("file", file);
@@ -65,7 +65,7 @@ export async function uploadImageToIPFS(
  */
 export async function uploadMetadataToIPFS(
   metadata: ArtworkMetadata,
-  name?: string
+  name?: string,
 ): Promise<IpfsUploadResult> {
   const res = await axios.post("/api/ipfs/upload-metadata", {
     metadata,
@@ -85,7 +85,17 @@ export async function uploadMetadataToIPFS(
  * Fetches and parses artwork metadata JSON from IPFS.
  * `cid` can be a raw CID string or an "ipfs://CID" URI.
  */
-export async function fetchMetadata(cid: string): Promise<ArtworkMetadata> {
+export async function fetchMetadata(cid?: string): Promise<ArtworkMetadata> {
+  if (!cid) {
+    return {
+      title: "Unknown Artwork",
+      description: "",
+      artist: "Unknown",
+      image: "",
+      year: "",
+      category: "",
+    };
+  }
   const cleanCid = cid.replace("ipfs://", "").trim();
   const url = `${config.pinataGateway}/ipfs/${cleanCid}`;
   const res = await axios.get<ArtworkMetadata>(url);

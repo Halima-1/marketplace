@@ -7,7 +7,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Auction, stroopsToXlm } from "@/lib/contract";
 import { useWalletContext } from "@/context/WalletContext";
-import { usePlaceBid, useFinalizeAuction } from "@/hooks/useAuctions";
+import { usePlaceBid } from "@/hooks/usePlaceBid";
+import { useFinalizeAuction } from "@/hooks/useAuctions";
 import { GuardButton } from "@/components/WalletGuard";
 import {
   Gavel,
@@ -62,21 +63,24 @@ export function BiddingPanel({
 }: BiddingPanelProps) {
   const { publicKey } = useWalletContext();
   const { bid, isBidding, error: bidError } = usePlaceBid(publicKey);
-  const { finalize, isFinalizing, error: finalizeError } =
-    useFinalizeAuction(publicKey);
+  const {
+    finalize,
+    isFinalizing,
+    error: finalizeError,
+  } = useFinalizeAuction(publicKey);
 
   const { days, hours, minutes, seconds, isExpired } = useCountdown(
-    auction.end_time
+    auction.end_time,
   );
 
   const [bidAmount, setBidAmount] = useState("");
   const [bidSuccess, setBidSuccess] = useState(false);
 
-  const currentBidXlm = Number(auction.highest_bid) / 10_000_000;
-  const reserveXlm = Number(auction.reserve_price) / 10_000_000;
+  const currentBidXlm = parseFloat(stroopsToXlm(auction.highest_bid));
+  const reserveXlm = parseFloat(stroopsToXlm(auction.reserve_price));
   const minimumBid = Math.max(
     currentBidXlm > 0 ? currentBidXlm + 0.0000001 : reserveXlm,
-    reserveXlm
+    reserveXlm,
   );
 
   const isOwn = publicKey === auction.creator;

@@ -24,33 +24,35 @@ model Listing {
   owner           String?
   price           Decimal  @db.Decimal(32, 7)
   currency        String
-  metadataCid     String
+  collection      String
+  nftTokenId      BigInt
   token           String
+  metadataCid     String?
   status          String   // "Active", "Sold", "Cancelled", "Auction"
-  royaltyBps      Int      @default(0)
-  originalCreator String?
   recipients      Json?
   createdAtLedger Int
   updatedAtLedger Int
   @@index([artist])
   @@index([status])
+  @@index([updatedAtLedger])
 }
 
 model Auction {
   auctionId       BigInt   @id
   creator         String
-  metadataCid     String
+  collection      String
+  nftTokenId      BigInt
   token           String
+  metadataCid     String?
   reservePrice    Decimal  @db.Decimal(32, 7)
   highestBid      Decimal  @db.Decimal(32, 7)
   highestBidder   String?
   endTime         BigInt
   status          String   // "Active", "Finalized", "Cancelled"
   recipients      Json?
-  royaltyBps      Int      @default(0)
-  originalCreator String
   createdAtLedger Int
   updatedAtLedger Int
+  @@index([updatedAtLedger])
 }
 
 model Offer {
@@ -62,6 +64,7 @@ model Offer {
   status          String   // "Pending", "Accepted", "Rejected", "Withdrawn"
   createdAtLedger Int
   updatedAtLedger Int
+  @@index([listingId])
 }
 
 
@@ -75,6 +78,9 @@ model MarketplaceEvent {
   ledgerTimestamp DateTime @default(now())
   @@index([actor])
   @@index([eventType])
+  @@index([listingId])
+  @@index([ledgerSequence])
+  @@index([listingId, ledgerSequence])
   @@unique([listingId, eventType, ledgerSequence])
 }
 

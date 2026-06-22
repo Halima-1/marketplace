@@ -13,7 +13,8 @@ import { fetchMetadata, cidToGatewayUrl, ArtworkMetadata } from "@/lib/ipfs";
 import { getListingActivity, ActivityEvent } from "@/lib/indexer";
 import { getReadableErrorMessage } from "@/lib/errors";
 import { useWalletContext } from "@/context/WalletContext";
-import { usePlaceBid, useFinalizeAuction } from "@/hooks/useAuctions";
+import { usePlaceBid } from "@/hooks/usePlaceBid";
+import { useFinalizeAuction } from "@/hooks/useAuctions";
 import { GuardButton } from "@/components/WalletGuard";
 import {
   ArrowLeft,
@@ -89,7 +90,7 @@ function Countdown({ endTime }: { endTime: number }) {
 function BidHistoryRow({ event }: { event: ActivityEvent }) {
   const amountXlm = (Number(event.price) / 10_000_000).toLocaleString(
     undefined,
-    { maximumFractionDigits: 4 }
+    { maximumFractionDigits: 4 },
   );
   const shortAddr = (addr: string) =>
     addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -130,8 +131,11 @@ export default function AuctionDetailPage() {
   const [finalizeSuccess, setFinalizeSuccess] = useState(false);
 
   const { bid, isBidding, error: bidError } = usePlaceBid(publicKey);
-  const { finalize, isFinalizing, error: finalizeError } =
-    useFinalizeAuction(publicKey);
+  const {
+    finalize,
+    isFinalizing,
+    error: finalizeError,
+  } = useFinalizeAuction(publicKey);
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -269,8 +273,8 @@ export default function AuctionDetailPage() {
                 isActive
                   ? "bg-green-500 text-white"
                   : isFinalized
-                  ? "bg-blue-500 text-white"
-                  : "bg-gray-400 text-white"
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-400 text-white"
               }`}
             >
               {auction.status}
@@ -310,7 +314,7 @@ export default function AuctionDetailPage() {
                   Current Bid
                 </span>
                 <span className="text-xl font-bold text-gray-900">
-                  {Number(auction.highest_bid) > 0
+                  {auction.highest_bid > 0n
                     ? `${highestBidXlm} XLM`
                     : "No bids yet"}
                 </span>
@@ -361,9 +365,7 @@ export default function AuctionDetailPage() {
                     )}
                   </GuardButton>
                 </div>
-                {bidError && (
-                  <p className="text-xs text-red-500">{bidError}</p>
-                )}
+                {bidError && <p className="text-xs text-red-500">{bidError}</p>}
                 {bidSuccess && (
                   <p className="flex items-center gap-1 text-xs text-green-600">
                     <CheckCircle2 size={13} /> Bid placed successfully!
@@ -529,7 +531,8 @@ export default function AuctionDetailPage() {
                 <div>
                   <p className="text-xs text-gray-400">Royalty</p>
                   <p className="font-medium text-gray-700">
-                    {(auction.royalty_bps / 100).toFixed(1)}%
+                    {/* Royalties handled by collection contract natively */}
+                    Enforced natively
                   </p>
                 </div>
               </div>

@@ -30,7 +30,10 @@ const PAGE_SIZE = 12;
 
 const metadataCache = new Map<string, ArtworkMetadata | null>();
 
-async function getCachedMetadata(cid: string): Promise<ArtworkMetadata | null> {
+async function getCachedMetadata(
+  cid?: string,
+): Promise<ArtworkMetadata | null> {
+  if (!cid) return null;
   if (metadataCache.has(cid)) return metadataCache.get(cid) ?? null;
   try {
     const meta = await fetchMetadata(cid);
@@ -61,15 +64,22 @@ export default function ExplorePage() {
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
-  const [metadataMap, setMetadataMap] = useState<Map<string, ArtworkMetadata | null>>(new Map());
+  const [metadataMap, setMetadataMap] = useState<
+    Map<string, ArtworkMetadata | null>
+  >(new Map());
 
   // Debounce search so we don't fire on every keystroke
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => setDebouncedSearch(filters.search), 350);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    searchTimer.current = setTimeout(
+      () => setDebouncedSearch(filters.search),
+      350,
+    );
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
   }, [filters.search]);
 
   // Fetch from indexer whenever database-filterable params change
@@ -84,11 +94,13 @@ export default function ExplorePage() {
       if (debouncedSearch.trim()) opts.search = debouncedSearch.trim();
 
       const res = await fetchListings(opts);
-      const rows = Array.isArray(res.listings) ? (res.listings as Listing[]) : [];
-      if (rows.length > 0) {
+      const rows = Array.isArray(res.listings)
+        ? (res.listings as Listing[])
+        : null;
+      if (rows !== null) {
         setAllListings(rows);
       } else {
-        // Fallback to on-chain scan when indexer returns nothing
+        // Fallback to on-chain scan only when indexer response is malformed
         const all = await getAllListings();
         setAllListings(all);
       }
@@ -104,10 +116,14 @@ export default function ExplorePage() {
     }
   }, [filters.status, filters.minPrice, filters.maxPrice, debouncedSearch]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [filters]);
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
   // Resolve metadata for category / full-text search (client-side only)
   useEffect(() => {
@@ -117,14 +133,17 @@ export default function ExplorePage() {
       const entries: [string, ArtworkMetadata | null][] = [];
       await Promise.all(
         allListings.map(async (l) => {
+          if (!l.metadata_cid) return;
           const meta = await getCachedMetadata(l.metadata_cid);
           entries.push([l.metadata_cid, meta]);
-        })
+        }),
       );
       if (!cancelled) setMetadataMap(new Map(entries));
     };
     resolveAll();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [allListings]);
 
   // ── Client-side post-filter for category + sort ───────────
@@ -135,7 +154,7 @@ export default function ExplorePage() {
     // Category filter (IPFS metadata — client-side only)
     if (filters.category !== "All") {
       result = result.filter((l) => {
-        const meta = metadataMap.get(l.metadata_cid);
+        const meta = l.metadata_cid ? metadataMap.get(l.metadata_cid) : null;
         return meta?.category === filters.category;
       });
     }
@@ -172,7 +191,7 @@ export default function ExplorePage() {
       setPage(Math.max(1, Math.min(p, totalPages)));
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [totalPages]
+    [totalPages],
   );
 
   // ── Stats ────────────────────────────────────────────────
@@ -219,7 +238,9 @@ export default function ExplorePage() {
       {/* Controls */}
       <SearchFilter
         filters={filters}
-        onFilterChange={(newFilters) => setFilters((prev) => ({ ...prev, ...newFilters }))}
+        onFilterChange={(newFilters) =>
+          setFilters((prev) => ({ ...prev, ...newFilters }))
+        }
         showFilters={showFilters}
         setShowFilters={setShowFilters}
         totalResults={filtered.length}
@@ -245,7 +266,9 @@ export default function ExplorePage() {
               <span>
                 {" "}
                 matching &ldquo;
-                <span className="font-medium text-brand-600">{filters.search}</span>
+                <span className="font-medium text-brand-600">
+                  {filters.search}
+                </span>
                 &rdquo;
               </span>
             )}
@@ -307,7 +330,9 @@ export default function ExplorePage() {
                 ? "Try adjusting your search or filters to find what you are looking for."
                 : "No listings match the current filters. Check back soon for new artworks."}
             </p>
-            {(filters.search || filters.status !== "All" || filters.category !== "All") && (
+            {(filters.search ||
+              filters.status !== "All" ||
+              filters.category !== "All") && (
               <button
                 onClick={() => {
                   setFilters({
@@ -368,10 +393,7 @@ export default function ExplorePage() {
                   }, [])
                   .map((item, idx) =>
                     item === "..." ? (
-                      <span
-                        key={`dots-${idx}`}
-                        className="px-1 text-gray-400"
-                      >
+                      <span key={`dots-${idx}`} className="px-1 text-gray-400">
                         ...
                       </span>
                     ) : (
@@ -386,7 +408,7 @@ export default function ExplorePage() {
                       >
                         {item}
                       </button>
-                    )
+                    ),
                   )}
 
                 <button

@@ -16,7 +16,7 @@ import {
   Listing,
   stroopsToXlm,
 } from "@/lib/contract";
-import { fetchListings } from "@/lib/indexer";
+import { fetchListings, fetchArtistListings } from "@/lib/indexer";
 import { config } from "@/lib/config";
 import {
   uploadImageToIPFS,
@@ -59,13 +59,13 @@ export function useMarketplace(opts?: { page?: number; limit?: number }) {
           setListings(sorted as Listing[]);
         } else {
           const res = await fetchListings({ status: "Active", limit: 1000 });
-          if (Array.isArray(res.listings) && res.listings.length > 0) {
+          if (Array.isArray(res.listings)) {
             const sorted = [...res.listings].sort(
               (a: any, b: any) => b.created_at - a.created_at,
             );
             setListings(sorted as Listing[]);
           } else {
-            // Fallback to on-chain scan
+            // Fallback to on-chain scan only when indexer response is malformed
             const all = await getAllListings();
             const sorted = [...all].sort((a, b) => b.created_at - a.created_at);
             setListings(sorted);
@@ -82,7 +82,7 @@ export function useMarketplace(opts?: { page?: number; limit?: number }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [opts]);
 
   useEffect(() => {
     refresh();
@@ -117,6 +117,18 @@ export function useArtistListings(artistPublicKey: string | null) {
     setIsLoading(true);
     setError(null);
     try {
+      try {
+        const raw = await fetchArtistListings(artistPublicKey);
+        if (raw && raw.length >= 0) {
+          setListings(
+            raw.sort((a: any, b: any) => b.created_at - a.created_at),
+          );
+          return;
+        }
+      } catch (e) {
+        console.warn("[indexer] useArtistListings fallback:", e);
+      }
+
       const ids = await getArtistListings(artistPublicKey);
       const resolved = await Promise.all(ids.map((id) => getListing(id)));
       setListings(resolved.sort((a, b) => b.created_at - a.created_at));
@@ -137,15 +149,10 @@ export function useArtistListings(artistPublicKey: string | null) {
 // ── useCreateListing ──────────────────────────────────────────
 
 export interface CreateListingInput {
-  title: string;
-  description: string;
-  artistName: string;
-  year: string;
-  category: string;
+  collectionAddress: string;
+  nftTokenId: number;
   price: number;
   tokenAddress?: string;
-  royaltyBps?: number;
-  imageFile: File;
 }
 
 export function useCreateListing(artistPublicKey: string | null) {
@@ -171,45 +178,21 @@ export function useCreateListing(artistPublicKey: string | null) {
           "listing",
         );
 
-        // Step 1: Upload image to IPFS.
-        setProgress("Uploading image to IPFS…");
-        const imageResult = await uploadImageToIPFS(
-          input.imageFile,
-          input.title,
-        );
-
-        // Step 2: Build metadata JSON.
-        const metadata: ArtworkMetadata = {
-          title: input.title,
-          description: input.description,
-          artist: input.artistName,
-          image: `ipfs://${imageResult.cid}`,
-          year: input.year,
-          category: input.category,
-        };
-
-        // Step 3: Upload metadata to IPFS.
-        setProgress("Uploading metadata to IPFS…");
-        const metadataResult = await uploadMetadataToIPFS(
-          metadata,
-          input.title,
-        );
-
-        // Step 4: Call the Soroban contract.
+        // Step 1: Call the Soroban contract.
         setProgress("Creating on-chain listing…");
         const listingId = await createListing(
           artistPublicKey,
-          metadataResult.cid,
           input.price,
           token.address,
-          input.royaltyBps,
+          input.collectionAddress,
+          input.nftTokenId,
         );
 
         // Track successful listing creation
         trackEvent.listingCreated(
           listingId,
           input.price.toString(),
-          token.code || "XLM",
+          token.symbol || "XLM",
         );
 
         setProgress("Listing created successfully!");
@@ -427,35 +410,4 @@ export function useAuction(auctionId: number | null) {
   }, [refresh]);
 
   return { auction, isLoading, error, refresh };
-}
-
-// ── usePlaceBid ───────────────────────────────────────────────
-
-export function usePlaceBid(bidderPublicKey: string | null) {
-  const [isBidding, setIsBidding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useTransientErrorToast(error);
-
-  const bid = useCallback(
-    async (auctionId: number, amountXlm: number): Promise<boolean> => {
-      if (!bidderPublicKey) {
-        setError("Wallet not connected");
-        return false;
-      }
-      setIsBidding(true);
-      setError(null);
-      try {
-        await placeBid(bidderPublicKey, auctionId, amountXlm);
-        return true;
-      } catch (err: unknown) {
-        setError(getReadableErrorMessage(err, "Bid failed"));
-        return false;
-      } finally {
-        setIsBidding(false);
-      }
-    },
-    [bidderPublicKey],
-  );
-
-  return { bid, isBidding, error };
 }

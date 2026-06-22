@@ -22,6 +22,7 @@ const mockPrisma = vi.hoisted(() => ({
 
 const mockRedis = vi.hoisted(() => ({
   isOpen: false,
+  isReady: false,
   get: vi.fn(),
   setEx: vi.fn().mockResolvedValue(undefined),
   on: vi.fn(),
@@ -127,6 +128,16 @@ describe('GET /listings', () => {
     const res = await request(app).get('/listings');
     expect(res.status).toBe(500);
     expect(res.body.error).toBeDefined();
+  });
+
+  it('caps offset at 10000', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([]);
+
+    await request(app).get('/listings?offset=50000');
+
+    expect(mockPrisma.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 10000 })
+    );
   });
 });
 
@@ -309,10 +320,10 @@ describe('GET /wallets/:address/activity', () => {
 describe('GET /wallets/:address/royalty-stats', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns totals for resales where the wallet is the original creator', async () => {
+  it('returns totals for resales where the wallet is in the recipients array', async () => {
     mockPrisma.listing.findMany.mockResolvedValue([
-      { listingId: 1n, price: 100, royaltyBps: 1000, updatedAtLedger: 100 },
-      { listingId: 2n, price: 200, royaltyBps: 500, updatedAtLedger: 200 },
+      { listingId: 1n, price: 100, recipients: [{ address: 'GCREATOR', percentage: 1000 }], updatedAtLedger: 100 },
+      { listingId: 2n, price: 200, recipients: [{ address: 'GCREATOR', percentage: 500 }], updatedAtLedger: 200 },
     ]);
 
     const res = await request(app).get('/wallets/GCREATOR/royalty-stats');
@@ -324,7 +335,6 @@ describe('GET /wallets/:address/royalty-stats', () => {
     expect(mockPrisma.listing.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          originalCreator: 'GCREATOR',
           status: 'Sold',
           NOT: { artist: 'GCREATOR' },
         },
@@ -406,5 +416,130 @@ describe('GET /stats', () => {
     const res = await request(app).get('/stats?from=bad-date');
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Invalid from date format. Use ISO 8601.');
+  });
+});
+// ── GET /wallets/:address/activity — extended coverage ───────────────────────
+
+describe('GET /wallets/:address/activity — extended', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('defaults to limit 50 when no limit param is provided', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([]);
+    await request(app).get('/wallets/GTEST/activity');
+    expect(mockPrisma.marketplaceEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 50 })
+    );
+  });
+
+  it('caps limit at 200 when a higher value is requested', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([]);
+    await request(app).get('/wallets/GTEST/activity?limit=500');
+    expect(mockPrisma.marketplaceEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 200 })
+    );
+  });
+
+  it('returns an empty array when the wallet has no matching events', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([]);
+    const res = await request(app).get('/wallets/GNOBODY/activity');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('returns 500 when the database throws', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockRejectedValue(new Error('DB error'));
+    const res = await request(app).get('/wallets/GTEST/activity');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('queries both the actor field and JSON data fields', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([]);
+    const addr = 'GACTORTEST';
+    await request(app).get(`/wallets/${addr}/activity`);
+    const call = mockPrisma.marketplaceEvent.findMany.mock.calls[0][0] as any;
+    // Should contain an OR clause covering actor + multiple JSON paths
+    expect(call.where.OR).toBeDefined();
+    expect(call.where.OR.length).toBeGreaterThan(1);
+    const hasActorClause = call.where.OR.some((c: any) => c.actor === addr);
+    expect(hasActorClause).toBe(true);
+  });
+
+  it('orders results by ledgerSequence descending', async () => {
+    mockPrisma.marketplaceEvent.findMany.mockResolvedValue([]);
+    await request(app).get('/wallets/GTEST/activity');
+    expect(mockPrisma.marketplaceEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { ledgerSequence: 'desc' } })
+    );
+  });
+});
+
+// ── GET /wallets/:address/royalty-stats — extended coverage ──────────────────
+
+describe('GET /wallets/:address/royalty-stats — extended', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns zeros when the wallet has no secondary sales', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([]);
+    const res = await request(app).get('/wallets/GNEW/royalty-stats');
+    expect(res.status).toBe(200);
+    expect(parseFloat(res.body.totalEarned)).toBe(0);
+    expect(res.body.payoutCount).toBe(0);
+    expect(res.body.lastPayout).toBe(0);
+  });
+
+  it('handles percentage of zero without producing NaN', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([
+      { listingId: 1n, price: 500, recipients: [{ address: 'GCREATOR', percentage: 0 }], updatedAtLedger: 10 },
+    ]);
+    const res = await request(app).get('/wallets/GCREATOR/royalty-stats');
+    expect(res.status).toBe(200);
+    expect(parseFloat(res.body.totalEarned)).toBe(0);
+    expect(res.body.payoutCount).toBe(1);
+  });
+
+  it('returns 500 when the database throws', async () => {
+    mockPrisma.listing.findMany.mockRejectedValue(new Error('DB error'));
+    const res = await request(app).get('/wallets/GCREATOR/royalty-stats');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('picks the most recent updatedAtLedger as lastPayout', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([
+      { listingId: 1n, price: 100, recipients: [{ address: 'GCREATOR', percentage: 500 }], updatedAtLedger: 50 },
+      { listingId: 2n, price: 200, recipients: [{ address: 'GCREATOR', percentage: 500 }], updatedAtLedger: 200 }, // latest
+      { listingId: 3n, price: 150, recipients: [{ address: 'GCREATOR', percentage: 500 }], updatedAtLedger: 30 },
+    ]);
+    const res = await request(app).get('/wallets/GCREATOR/royalty-stats');
+    expect(res.status).toBe(200);
+    expect(res.body.lastPayout).toBe(200 * 1000);
+  });
+
+  it('correctly filters out self-sales', async () => {
+    mockPrisma.listing.findMany.mockResolvedValue([
+      { listingId: 1n, price: 100, recipients: [{ address: 'GCREATOR', percentage: 500 }], updatedAtLedger: 50 },
+    ]);
+    await request(app).get('/wallets/GCREATOR/royalty-stats');
+    expect(mockPrisma.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          NOT: { artist: 'GCREATOR' },
+          status: 'Sold',
+        }),
+      })
+    );
+  });
+
+  it('accumulates totalEarned correctly across multiple resales', async () => {
+    // 100 @ 1000 bps = 10; 200 @ 500 bps = 10; total = 20
+    mockPrisma.listing.findMany.mockResolvedValue([
+      { listingId: 1n, price: 100, recipients: [{ address: 'GCREATOR', percentage: 1000 }], updatedAtLedger: 100 },
+      { listingId: 2n, price: 200, recipients: [{ address: 'GCREATOR', percentage: 500 }],  updatedAtLedger: 200 },
+    ]);
+    const res = await request(app).get('/wallets/GCREATOR/royalty-stats');
+    expect(res.status).toBe(200);
+    expect(parseFloat(res.body.totalEarned)).toBeCloseTo(20, 4);
+    expect(res.body.payoutCount).toBe(2);
   });
 });

@@ -24,11 +24,12 @@ pub enum DataKey {
     AuctionLock(u64),
     IsPaused,
     PendingAdmin,
+    ActiveListings,
 }
 
 pub const LEDGER_TTL_BUMP: u32 = 432_000;
 pub const LEDGER_TTL_THRESHOLD: u32 = 144_000;
-pub const REENTRANCY_LOCK_TTL: u32 = 1;
+pub const REENTRANCY_LOCK_TTL: u32 = 100;
 
 // ── Counter helpers ──────────────────────────────────────────
 
@@ -172,6 +173,48 @@ pub fn get_artist_listing_ids(env: &Env, artist: &Address) -> Vec<u64> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+// ── Active listings index ────────────────────────────────────
+
+pub fn add_to_active_listings(env: &Env, listing_id: u64) {
+    let key = DataKey::ActiveListings;
+    let mut ids = env
+        .storage()
+        .persistent()
+        .get::<_, Vec<u64>>(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    ids.push_back(listing_id);
+    env.storage().persistent().set(&key, &ids);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_BUMP);
+}
+
+pub fn remove_from_active_listings(env: &Env, listing_id: u64) {
+    let key = DataKey::ActiveListings;
+    let ids = env
+        .storage()
+        .persistent()
+        .get::<_, Vec<u64>>(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    let mut updated = Vec::new(env);
+    for id in ids.iter() {
+        if id != listing_id {
+            updated.push_back(id);
+        }
+    }
+    env.storage().persistent().set(&key, &updated);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_BUMP);
+}
+
+pub fn get_active_listing_ids(env: &Env) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get::<_, Vec<u64>>(&DataKey::ActiveListings)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
 pub fn add_artist_auction_id(env: &Env, artist: &Address, auction_id: u64) {
     let key = DataKey::ArtistAuctions(artist.clone());
     let mut ids = env
@@ -184,6 +227,13 @@ pub fn add_artist_auction_id(env: &Env, artist: &Address, auction_id: u64) {
     env.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_BUMP);
+}
+
+pub fn get_artist_auction_ids(env: &Env, artist: &Address) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get::<_, Vec<u64>>(&DataKey::ArtistAuctions(artist.clone()))
+        .unwrap_or_else(|| Vec::new(env))
 }
 
 pub fn save_listing_offers(env: &Env, listing_id: u64, ids: &Vec<u64>) {
@@ -252,7 +302,15 @@ pub fn set_treasury_storage(env: &Env, addr: &Address) {
 }
 
 pub fn get_treasury_storage(env: &Env) -> Option<Address> {
-    env.storage().persistent().get(&DataKey::Treasury)
+    let value = env.storage().persistent().get(&DataKey::Treasury);
+    if value.is_some() {
+        env.storage().persistent().extend_ttl(
+            &DataKey::Treasury,
+            LEDGER_TTL_THRESHOLD,
+            LEDGER_TTL_BUMP,
+        );
+    }
+    value
 }
 
 pub fn set_protocol_fee_bps_storage(env: &Env, bps: u32) {
@@ -262,7 +320,15 @@ pub fn set_protocol_fee_bps_storage(env: &Env, bps: u32) {
 }
 
 pub fn get_protocol_fee_bps_storage(env: &Env) -> Option<u32> {
-    env.storage().persistent().get(&DataKey::ProtocolFeeBps)
+    let value = env.storage().persistent().get(&DataKey::ProtocolFeeBps);
+    if value.is_some() {
+        env.storage().persistent().extend_ttl(
+            &DataKey::ProtocolFeeBps,
+            LEDGER_TTL_THRESHOLD,
+            LEDGER_TTL_BUMP,
+        );
+    }
+    value
 }
 
 // ── Reentrancy Guards ────────────────────────────────────────
